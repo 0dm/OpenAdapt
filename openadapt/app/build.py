@@ -1,8 +1,11 @@
 import os
 import subprocess
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_data_files
 
 import nicegui
+
+datas = collect_data_files("en_core_web_trf")
 
 spec = [
     "pyi-makespec",
@@ -15,6 +18,12 @@ spec = [
     "--windowed",  # prevent console appearing, only use with ui.run(native=True, ...)
     "--add-data",
     f"{Path(nicegui.__file__).parent}{os.pathsep}nicegui",
+    "--add-data",
+    f"{Path(__file__).parent}{os.pathsep}assets",
+    "--hidden-import=pydicom.encoders.gdcm",
+    "--hidden-import=pydicom.encoders.pylibjpeg",
+    # add spacy model en_core_web_trf
+    "--hidden-import=en_core_web_trf",
 ]
 
 subprocess.call(spec)
