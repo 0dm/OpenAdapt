@@ -13,6 +13,9 @@ def get_active_window_state():
     # https://github.com/Kalmat/PyWinCtl/issues/29
     meta = get_active_window_meta()
     data = get_window_data(meta)
+    while not data:
+        meta = get_active_window_meta()
+        data = get_window_data(meta)
     title_parts = [
         meta['kCGWindowOwnerName'],
         meta['kCGWindowName'],
@@ -61,6 +64,9 @@ def get_active_window_meta():
 
 def get_active_window(window_meta):
     pid = window_meta["kCGWindowOwnerPID"]
+    # check if owner is window server
+    # if window_meta["kCGWindowOwnerName"] == "Window Server":
+    #     return None
     app_ref = ApplicationServices.AXUIElementCreateApplication(pid)
     error_code, window = ApplicationServices.AXUIElementCopyAttributeValue(
         app_ref, 'AXFocusedWindow', None
