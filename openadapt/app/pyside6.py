@@ -37,6 +37,7 @@ class SystemTrayIcon(QSystemTrayIcon):
         self.menu.addAction(self.quit)
 
         self.tray.setContextMenu(self.menu)
+        self.current_state = "default"
 
     def _quick_record(self):
         Notify("OpenAdapt", "Starting recording...", "OpenAdapt").send()
@@ -57,6 +58,23 @@ class SystemTrayIcon(QSystemTrayIcon):
             action = QAction(f"{recording.task_description}")
             action.triggered.connect(partial(self.callback, recording))
             self.visualize_menu.addAction(action)
+
+    def update_icon(self):
+        if self.current_state == "default":
+            self.tray.setIcon(QIcon("assets/recording_inprogress.png"))
+            self.current_state = "recording_in_progress"
+        elif self.current_state == "recording_in_progress":
+            self.tray.setIcon(QIcon("assets/replay_available.png"))
+            self.current_state = "replay_available"
+        elif self.current_state == "replay_available":
+            self.tray.setIcon(QIcon("assets/replay_inprogress.png"))
+            self.current_state = "replaying_in_progress"
+        elif self.current_state == "replaying_in_progress":
+            self.tray.setIcon(QIcon("assets/replay_paused.png"))
+            self.current_state = "replaying_paused"
+        elif self.current_state == "replaying_paused":
+            self.tray.setIcon(QIcon("assets/replay_inprogress.png"))
+            self.current_state = "replaying_in_progress"
 
     def run(self):
         self.app.exec_()
