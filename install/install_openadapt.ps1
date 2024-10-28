@@ -16,10 +16,18 @@ $pythonMaxVersion = "3.10.12" # Change this if a different Higher version are su
 $pythonInstaller = "python-3.10.11-amd64.exe"
 $pythonInstallerLoc = "https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe"
 
+$nvmCmd = "nvm"
+$nvmInstaller = "nvm-setup.exe"
+$nvmInstallerLoc = "https://github.com/coreybutler/nvm-windows/releases/download/1.1.12/nvm-setup.exe"
+
 $gitCmd = "git"
 $gitInstaller = "Git-2.40.1-64-bit.exe"
 $gitInstallerLoc = "https://github.com/git-for-windows/git/releases/download/v2.40.1.windows.1/Git-2.40.1-64-bit.exe"
 $gitUninstaller = "C:\Program Files\Git\unins000.exe"
+
+$VCRedistInstaller = "vc_redist.x64.exe"
+$VCRedistInstallerLoc = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+$VCRedistRegPath = "HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\X64"
 ################################   PARAMETERS   ################################
 
 
@@ -222,6 +230,39 @@ function GetPythonCMD {
     exit
 }
 
+# Check and Install NVM and return the nvm command
+function GetNVMCMD {
+    $nvmExists = CheckCMDExists $nvmCmd
+    if (!$nvmExists) {
+        # Install NVM
+        Write-Host "Downloading NVM installer..."
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $nvmInstallerLoc -OutFile $nvmInstaller
+        $exists = Test-Path -Path $nvmInstaller -PathType Leaf
+        if (!$exists) {
+            Write-Host "Failed to download NVM installer" -ForegroundColor Red
+            exit
+        }
+
+        Write-Host "Installing NVM..."
+        Start-Process -FilePath $nvmInstaller -Verb runAs -ArgumentList '/VERYSILENT /NORESTART /NOCANCEL /SP-' -Wait
+        Remove-Item $nvmInstaller
+
+        RefreshPathVariables
+
+        # Make sure NVM is now available
+        $nvmExists = CheckCMDExists $nvmCmd
+        if (!$nvmExists) {
+            Write-Host "Error after installing NVM. Uninstalling..."
+            Start-Process -FilePath $nvmInstaller -Verb runAs -ArgumentList '/VERYSILENT /NORESTART /NOCANCEL /SP-' -Wait
+            Cleanup
+            exit
+        }
+    }
+    # Return the nvm command
+    return $nvmCmd
+}
+
 
 # Check and Install Git and return the git command
 function GetGitCMD {
@@ -255,10 +296,42 @@ function GetGitCMD {
     # Return the git command
     return $gitCmd
 }
+
+
+function Install-VCRedist {
+    # Check if Visual C++ Redist is installed
+    try {
+        $vcredistExists = (Get-ItemPropertyValue -Path $VCRedistRegPath -Name Installed -ErrorAction Stop)
+    }
+    catch {
+        $vcredistExists = $false
+    }
+
+    if (!$vcredistExists) {
+        # Install Visual C++ Redist
+        Write-Host "Downloading Visual C++ Redist"
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $VCRedistInstallerLoc -OutFile $VCRedistInstaller
+
+        if (-Not (Test-Path -Path $VCRedistInstaller -PathType Leaf)) {
+            Write-Host "Failed to download Visual C++ installer"
+            return
+        }
+
+        Write-Host "Installing Visual C++ Redist, click 'Yes' if prompted for permission"
+        Start-Process -FilePath $VCRedistInstaller -Verb runAs -ArgumentList "/install /quiet /norestart" -Wait
+        Remove-Item $VCRedistInstaller
+
+        if ($LastExitCode) {
+            Write-Host "Failed to install Visual C++ Redist: $LastExitCode"
+            return
+        }
+    }
+}
 ################################   FUNCTIONS    ################################
 
 
-################################   SCRIPT    ################################
+################################   SCRIPT    ###################################
 
 Write-Host "Install Script Started..." -ForegroundColor Yellow
 
@@ -274,17 +347,25 @@ RunAndCheck "$tesseract --version" "check TesseractOCR"
 $python = GetPythonCMD
 RunAndCheck "$python --version" "check Python"
 
+$nvm = GetNVMCMD
+RunAndCheck "$nvm --version" "check NVM"
+
 $git = GetGitCMD
 RunAndCheck "$git --version" "check Git"
+
+Install-VCRedist
 
 # OpenAdapt Setup
 RunAndCheck "git clone -q https://github.com/MLDSAI/OpenAdapt.git" "clone git repo"
 Set-Location .\OpenAdapt
 RunAndCheck "pip install poetry" "Run ``pip install poetry``"
 RunAndCheck "poetry install" "Run ``poetry install``"
+RunAndCheck "poetry run postinstall" "Install other dependencies" -SkipCleanup:$true
+RunAndCheck "cd openadapt"
 RunAndCheck "poetry run alembic upgrade head" "Run ``alembic upgrade head``" -SkipCleanup:$true
+RunAndCheck "cd .."
 RunAndCheck "poetry run pytest" "Run ``Pytest``" -SkipCleanup:$true
 Write-Host "OpenAdapt installed Successfully!" -ForegroundColor Green
 Start-Process powershell -Verb RunAs -ArgumentList "-NoExit", "-Command", "Set-Location -Path '$pwd'; poetry shell"
 
-################################   SCRIPT    ################################
+################################   SCRIPT    ###################################

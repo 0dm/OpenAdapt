@@ -16,18 +16,13 @@ import string
 from bokeh.io import output_file, show
 from bokeh.layouts import layout, row
 from bokeh.models.widgets import Div
-from loguru import logger
 
-from openadapt.db.crud import get_latest_recording, get_window_events
+from openadapt.custom_logger import logger
+from openadapt.db import crud
 from openadapt.events import get_events
 from openadapt.models import ActionEvent, WindowEvent
-from openadapt.utils import (
-    configure_logging,
-    display_event,
-    image2utf8,
-    row2dict,
-    rows2dicts,
-)
+from openadapt.plotting import display_event
+from openadapt.utils import configure_logging, image2utf8, row2dict, rows2dicts
 from openadapt.visualize import IMG_WIDTH_PCT, MAX_EVENTS, dict2html
 
 CSS = string.Template("""
@@ -443,13 +438,15 @@ def calculate_productivity() -> None:
     """
     configure_logging(logger, LOG_LEVEL)
 
-    recording = get_latest_recording()
+    session = crud.get_new_session(read_only=True)
+
+    recording = crud.get_latest_recording(session)
     logger.debug(f"{recording=}")
 
-    action_events = get_events(recording, process=PROCESS_EVENTS)
+    action_events = get_events(session, recording, process=PROCESS_EVENTS)
     event_dicts = rows2dicts(action_events)
     logger.info(f"event_dicts=\n{pformat(event_dicts)}")
-    window_events = get_window_events(recording)
+    window_events = crud.get_window_events(session, recording)
     filtered_action_events = filter_move_release(action_events)
 
     # overall info first

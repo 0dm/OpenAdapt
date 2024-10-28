@@ -1,35 +1,40 @@
 """Replay recorded events.
 
 Usage:
-python openadapt/replay.py <strategy_name> [--timestamp=<timestamp>]
-
-Arguments:
-strategy_name Name of the replay strategy to use.
-
-Options:
---timestamp=<timestamp> Timestamp of the recording to replay.
-
+    python -m openadapt.replay.py <strategy_name> [--timestamp=<recording_timestamp>]
 """
+
 from time import sleep
-from typing import Union
+import multiprocessing
+import multiprocessing.connection
 import os
 
-from loguru import logger
-import fire
+from openadapt.build_utils import redirect_stdout_stderr
+from openadapt.custom_logger import logger
 
-from openadapt import capture, utils
+with redirect_stdout_stderr():
+    import fire
+
+from openadapt import capture as _capture
+from openadapt import utils
+from openadapt.config import CAPTURE_DIR_PATH, print_config
 from openadapt.db import crud
+from openadapt.error_reporting import configure_error_reporting
 from openadapt.models import Recording
 
 LOG_LEVEL = "INFO"
+
+posthog = utils.get_posthog_instance()
 
 
 @logger.catch
 def replay(
     strategy_name: str,
-    record: bool = False,
-    timestamp: Union[str, None] = None,
+    capture: bool = False,
+    timestamp: str | None = None,
     recording: Recording = None,
+    status_pipe: multiprocessing.connection.Connection | None = None,
+    **kwargs: dict,
 ) -> bool:
     """Replay recorded events.
 
@@ -37,17 +42,28 @@ def replay(
         strategy_name (str): Name of the replay strategy to use.
         timestamp (str, optional): Timestamp of the recording to replay.
         recording (Recording, optional): Recording to replay.
-        record (bool, optional): Flag indicating whether to record the replay.
+        capture (bool, optional): Flag indicating whether to capture the replay.
+        status_pipe: A connection to communicate replay status.
+        kwargs: Keyword arguments to pass to strategy.
 
     Returns:
         bool: True if replay was successful, None otherwise.
     """
     utils.configure_logging(logger, LOG_LEVEL)
+    print_config()
+    configure_error_reporting()
+    posthog.capture(event="replay.started", properties={"strategy_name": strategy_name})
+
+    if status_pipe:
+        # TODO: move to Strategy?
+        status_pipe.send({"type": "replay.started"})
+
+    session = crud.get_new_session(read_only=True)
 
     if timestamp and recording is None:
-        recording = crud.get_recording(timestamp)
+        recording = crud.get_recording(session, timestamp)
     elif recording is None:
-        recording = crud.get_latest_recording()
+        recording = crud.get_latest_recording(session)
 
     logger.debug(f"{recording=}")
     assert recording, "No recording found"
@@ -67,19 +83,18 @@ def replay(
     strategy_class = strategy_class_by_name[strategy_name]
     logger.info(f"{strategy_class=}")
 
-    strategy = strategy_class(recording)
+    strategy = strategy_class(recording, **kwargs)
     logger.info(f"{strategy=}")
 
     handler = None
     rval = True
-    if record:
-        capture.start(audio=False, camera=False)
+    if capture:
+        _capture.start(audio=False, camera=False)
         # TODO: handle this more robustly
         sleep(1)
         file_name = f"log-{strategy_name}-{recording.timestamp}.log"
-        # TODO: make configurable
-        dir_name = "captures"
-        file_path = os.path.join(dir_name, file_name)
+        file_path = os.path.join(CAPTURE_DIR_PATH, file_name)
+        os.makedirs(CAPTURE_DIR_PATH, exist_ok=True)
         logger.info(f"{file_path=}")
         handler = logger.add(open(file_path, "w"))
     try:
@@ -88,9 +103,16 @@ def replay(
         logger.exception(e)
         rval = False
 
-    if record:
+    if status_pipe:
+        status_pipe.send({"type": "replay.stopped"})
+    posthog.capture(
+        event="replay.stopped",
+        properties={"strategy_name": strategy_name, "success": rval},
+    )
+
+    if capture:
         sleep(1)
-        capture.stop()
+        _capture.stop()
         logger.remove(handler)
 
     return rval

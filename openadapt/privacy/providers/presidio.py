@@ -2,22 +2,25 @@
 
 from typing import List
 
-from loguru import logger
 from PIL import Image
-from presidio_analyzer import AnalyzerEngine
-from presidio_analyzer.nlp_engine import NlpEngineProvider
-from presidio_anonymizer import AnonymizerEngine
-from presidio_image_redactor import ImageAnalyzerEngine, ImageRedactorEngine
+
+from openadapt.build_utils import redirect_stdout_stderr
+from openadapt.custom_logger import logger
+from openadapt.spacy_model_helpers import download_spacy_model
+
+with redirect_stdout_stderr():
+    from presidio_analyzer import AnalyzerEngine
+    from presidio_analyzer.nlp_engine import NlpEngineProvider
+    from presidio_anonymizer import AnonymizerEngine
+    from presidio_image_redactor import ImageAnalyzerEngine, ImageRedactorEngine
+
 import spacy
 import spacy_transformers  # pylint: disable=unused-import # noqa: F401
 
-from openadapt import config
+from openadapt.build_utils import is_running_from_executable
+from openadapt.config import config
 from openadapt.privacy.base import Modality, ScrubbingProvider, TextScrubbingMixin
 from openadapt.privacy.providers import ScrubProvider
-
-if not spacy.util.is_package(config.SPACY_MODEL_NAME):  # pylint: disable=no-member
-    logger.info(f"Downloading {config.SPACY_MODEL_NAME} model...")
-    spacy.cli.download(config.SPACY_MODEL_NAME)
 
 
 class PresidioScrubbingProvider(
@@ -27,6 +30,13 @@ class PresidioScrubbingProvider(
 
     name: str = ScrubProvider.PRESIDIO  # pylint: disable=E1101
     capabilities: List[Modality] = [Modality.TEXT, Modality.PIL_IMAGE]
+
+    if not spacy.util.is_package(config.SPACY_MODEL_NAME):  # pylint: disable=no-member
+        logger.info(f"Downloading {config.SPACY_MODEL_NAME} model...")
+        if not is_running_from_executable():
+            spacy.cli.download(config.SPACY_MODEL_NAME)
+        else:
+            download_spacy_model(config.SPACY_MODEL_NAME)
 
     def scrub_text(self, text: str, is_separated: bool = False) -> str:
         """Scrub the text of all PII/PHI using Presidio ANALYZER.TRF and Anonymizer.

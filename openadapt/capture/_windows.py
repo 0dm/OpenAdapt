@@ -7,7 +7,7 @@ import wave
 from screen_recorder_sdk import screen_recorder
 import pyaudio
 
-from openadapt import config
+from openadapt.config import config
 
 
 class Capture:
@@ -48,15 +48,17 @@ class Capture:
 
         # Start video recording
         self.video_out = os.path.join(
-            config.CAPTURES_DIR,
-            datetime.now().strftime("%Y-%m-%d-%H-%M-%S") + ".mov",
+            config.CAPTURE_DIR_PATH,
+            datetime.now().strftime("%Y-%m-%d-%H-%M-%S") + ".mp4",
         )
+        if not os.path.exists(config.CAPTURE_DIR_PATH):
+            os.mkdir(config.CAPTURE_DIR_PATH)
         screen_recorder.start_video_recording(self.video_out, 30, 8000000, True)
 
         # Start audio recording
         if audio:
             self.audio_out = os.path.join(
-                config.CAPTURES_DIR,
+                config.CAPTURE_DIR_PATH,
                 datetime.now().strftime("%Y-%m-%d-%H-%M-%S") + ".wav",
             )
             self.audio_stream = self.audio.open(

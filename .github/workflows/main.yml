@@ -1,7 +1,7 @@
 name: Python CI
 
 on:
-  pull_request_target:
+  pull_request:
     branches:
       - '**'
 
@@ -25,21 +25,18 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          ref: ${{ env.BRANCH }}
+          repository: ${{ env.REPO }}
 
       - name: Set up Python
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
       - name: Run tests using the shell script (macOS compatible).
         if: matrix.os == 'macos-latest'
         run: sh install/install_openadapt.sh
-
-      - name: Checkout code
-        uses: actions/checkout@v3
-        with:
-          ref: ${{ env.BRANCH }}
-          repository: ${{ env.REPO }}
 
       - name: Install poetry
         uses: snok/install-poetry@v1
@@ -58,8 +55,12 @@ jobs:
       - run: poetry install --no-interaction --no-root
         if: steps.cache-deps.outputs.cache-hit != 'true'
 
+      - name: Activate virtualenv
+        run: source .venv/bin/activate
+        if: steps.cache-deps.outputs.cache-hit == 'true'
+
       - name: Check formatting with Black
-        run: poetry run black --preview --check .
+        run: poetry run black --preview --check . --exclude '/(alembic|\.cache|\.venv|venv|contrib|__pycache__)/'
 
       - name: Run Flake8
-        run: poetry run flake8
+        run: poetry run flake8 --exclude=alembic,.venv,venv,contrib,.cache,.git

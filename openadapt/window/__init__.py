@@ -6,7 +6,8 @@ Module: __init__.py
 from typing import Any
 import sys
 
-from loguru import logger
+from openadapt.config import config
+from openadapt.custom_logger import logger
 
 if sys.platform == "darwin":
     from . import _macos as impl
@@ -17,16 +18,21 @@ else:
     raise Exception(f"Unsupported platform: {sys.platform}")
 
 
-def get_active_window_data() -> dict[str, Any] | None:
+def get_active_window_data(
+    include_window_data: bool = config.RECORD_WINDOW_DATA,
+) -> dict[str, Any] | None:
     """Get data of the active window.
+
+    Args:
+        include_window_data (bool): whether to include a11y data.
 
     Returns:
         dict or None: A dictionary containing information about the active window,
-        or None if the state is not available.
+            or None if the state is not available.
     """
-    state = get_active_window_state()
+    state = get_active_window_state(include_window_data)
     if not state:
-        return None
+        return {}
     title = state["title"]
     left = state["left"]
     top = state["top"]
@@ -45,7 +51,7 @@ def get_active_window_data() -> dict[str, Any] | None:
     return window_data
 
 
-def get_active_window_state() -> dict | None:
+def get_active_window_state(read_window_data: bool) -> dict | None:
     """Get the state of the active window.
 
     Returns:
@@ -54,7 +60,7 @@ def get_active_window_state() -> dict | None:
     """
     # TODO: save window identifier (a window's title can change, or
     try:
-        return impl.get_active_window_state()
+        return impl.get_active_window_state(read_window_data)
     except Exception as exc:
         logger.warning(f"{exc=}")
         return None

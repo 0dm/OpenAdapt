@@ -4,16 +4,67 @@ This module provides functions for managing UI cards in the OpenAdapt applicatio
 """
 
 from datetime import datetime
-from subprocess import Popen
-import signal
+import multiprocessing
+import time
 
 from nicegui import ui
 
 from openadapt.app.objects.local_file_picker import LocalFilePicker
 from openadapt.app.util import get_scrub, set_dark, set_scrub, sync_switch
-from openadapt.crud import new_session
+from openadapt.record import record
+from openadapt.utils import WrapStdout
 
-record_proc = None
+
+class RecordProc:
+    """Class to manage the recording process."""
+
+    def __init__(self) -> None:
+        """Initialize the RecordProc class."""
+        self.terminate_processing = multiprocessing.Event()
+        self.terminate_recording = multiprocessing.Event()
+        self.record_proc: multiprocessing.Process = None
+        self.has_initiated_stop = False
+
+    def set_terminate_processing(self) -> multiprocessing.Event:
+        """Set the terminate event."""
+        return self.terminate_processing.set()
+
+    def terminate(self) -> None:
+        """Terminate the recording process."""
+        self.record_proc.terminate()
+
+    def reset(self) -> None:
+        """Reset the recording process."""
+        self.terminate_processing.clear()
+        self.terminate_recording.clear()
+        self.record_proc = None
+        record_proc.has_initiated_stop = False
+
+    def wait(self) -> None:
+        """Wait for the recording process to finish."""
+        while True:
+            if self.terminate_recording.is_set():
+                self.record_proc.terminate()
+                return
+            time.sleep(0.1)
+
+    def is_running(self) -> bool:
+        """Check if the recording process is running."""
+        if self.record_proc is not None and not self.record_proc.is_alive():
+            self.reset()
+        return self.record_proc is not None
+
+    def start(self, func: callable, args: tuple, kwargs: dict) -> None:
+        """Start the recording process."""
+        self.record_proc = multiprocessing.Process(
+            target=WrapStdout(func),
+            args=args,
+            kwargs=kwargs,
+        )
+        self.record_proc.start()
+
+
+record_proc = RecordProc()
 
 
 def settings(dark_mode: bool) -> None:
@@ -68,22 +119,38 @@ def select_import(f: callable) -> None:
 def stop_record() -> None:
     """Stop the current recording session."""
     global record_proc
-    if record_proc is not None:
-        record_proc.send_signal(signal.SIGINT)
+    if record_proc.is_running() and not record_proc.has_initiated_stop:
+        record_proc.set_terminate_processing()
 
         # wait for process to terminate
         record_proc.wait()
-        record_proc = None
+        record_proc.reset()
 
 
-def quick_record() -> None:
-    """Run a recording session with no option for recording name (uses date instead)."""
+def is_recording() -> bool:
+    """Check if a recording session is currently active."""
     global record_proc
-    new_session()
-    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    record_proc = Popen(
-        f"python -m openadapt.record '{now}'",
-        shell=True,
+    return record_proc.is_running()
+
+
+def quick_record(
+    task_description: str | None = None,
+    status_pipe: multiprocessing.connection.Connection | None = None,
+) -> None:
+    """Run a recording session."""
+    global record_proc
+    task_description = task_description or datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    record_proc.start(
+        record,
+        (
+            task_description,
+            record_proc.terminate_processing,
+            record_proc.terminate_recording,
+            status_pipe,
+        ),
+        {
+            "log_memory": False,
+        },
     )
 
 
@@ -94,7 +161,7 @@ def recording_prompt(options: list[str], record_button: ui.button) -> None:
         options (list): List of autocomplete options.
         record_button (nicegui.widgets.Button): Record button widget.
     """
-    if record_proc is None:
+    if not record_proc.is_running():
         with ui.dialog() as dialog, ui.card():
             ui.label("Enter a name for the recording: ")
             ui.input(
@@ -113,7 +180,7 @@ def recording_prompt(options: list[str], record_button: ui.button) -> None:
 
     def terminate() -> None:
         global record_proc
-        record_proc.send_signal(signal.SIGINT)
+        record_proc.set_terminate_processing()
 
         # wait for process to terminate
         record_proc.wait()
@@ -121,7 +188,7 @@ def recording_prompt(options: list[str], record_button: ui.button) -> None:
         record_button._props["name"] = "radio_button_checked"
         record_button.on("click", lambda: recording_prompt(options, record_button))
 
-        record_proc = None
+        record_proc.reset()
 
     def begin() -> None:
         name = result.text.__getattribute__("value")
@@ -129,17 +196,16 @@ def recording_prompt(options: list[str], record_button: ui.button) -> None:
         ui.notify(
             f"Recording {name}... Press CTRL + C in terminal window to cancel",
         )
-        new_session()
-        proc = Popen(
-            "python -m openadapt.record " + name,
-            shell=True,
+        global record_proc
+        record_proc.start(
+            record,
+            (name, record_proc.terminate_processing, record_proc.terminate_recording),
         )
         record_button._props["name"] = "stop"
         record_button.on("click", lambda: terminate())
         record_button.update()
-        return proc
 
     def on_record() -> None:
         global record_proc
         dialog.close()
-        record_proc = begin()
+        begin()

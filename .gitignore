@@ -1,9 +1,11 @@
 # Envirionment
 .env
+config.json
+data
 
 # Python
 __pycache__
-cache
+.cache
 *.egg-info
 *~
 .venv
@@ -30,3 +32,9 @@ src
 
 # MacOS file
 .DS_Store
+
+*.pyc
+*.pt
+
+dist/
+build/

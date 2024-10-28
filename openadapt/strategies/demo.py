@@ -5,9 +5,8 @@ Usage:
     $ python -m openadapt.replay DemoReplayStrategy
 """
 
-from loguru import logger
-
-from openadapt.db.crud import get_screenshots
+from openadapt.custom_logger import logger
+from openadapt.db import crud
 from openadapt.models import Recording, Screenshot, WindowEvent
 from openadapt.strategies.base import BaseReplayStrategy
 from openadapt.strategies.mixins.ascii import ASCIIReplayStrategyMixin
@@ -41,7 +40,8 @@ class DemoReplayStrategy(
         """
         super().__init__(recording)
         self.result_history = []
-        self.screenshots = get_screenshots(recording)
+        session = crud.get_new_session(read_only=True)
+        self.screenshots = crud.get_screenshots(session, recording)
         self.screenshot_idx = 0
 
     def get_next_action_event(
